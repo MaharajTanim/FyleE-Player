@@ -34,7 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ onShowFeatureShowcase }) => {
     <header className="app-header">
       <div className="header-left">
         <FilmIcon className="logo-icon" />
-        <h1>FileE Player</h1>
+        <h1>FyleE Player</h1>
       </div>
 
       <div className="search-bar">
