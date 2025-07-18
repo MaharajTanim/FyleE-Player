@@ -10,6 +10,11 @@ import {
   SkipBack,
   SkipForward,
   Info,
+  Settings,
+  Repeat,
+  PictureInPicture,
+  Keyboard,
+  Sliders,
 } from "lucide-react";
 import { useVideoContext } from "../hooks/useVideoContext";
 import { formatDuration } from "../utils/formatters";
@@ -41,17 +46,76 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
     compatibility?: string;
   } | null>(null);
 
+  // New state variables for enhanced features
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [loopMode, setLoopMode] = useState<"none" | "single" | "playlist">(
+    "none"
+  );
+  const [showSettings, setShowSettings] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [showVideoFilters, setShowVideoFilters] = useState(false);
+  const [videoFilters, setVideoFilters] = useState({
+    brightness: 100,
+    contrast: 100,
+    saturation: 100,
+    hue: 0,
+    blur: 0,
+    grayscale: 0,
+  });
+  const [isPictureInPicture, setIsPictureInPicture] = useState(false);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [showThumbnailPreview, setShowThumbnailPreview] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<number | null>(null);
 
   const { addToRecentlyPlayed } = useVideoContext();
 
+  const applyVideoFilters = useCallback(() => {
+    if (!videoRef.current) return;
+
+    const filterStyle = `
+      brightness(${videoFilters.brightness}%) 
+      contrast(${videoFilters.contrast}%) 
+      saturate(${videoFilters.saturation}%) 
+      hue-rotate(${videoFilters.hue}deg)
+      blur(${videoFilters.blur}px)
+      grayscale(${videoFilters.grayscale}%)
+    `;
+
+    videoRef.current.style.filter = filterStyle;
+  }, [videoFilters]);
+
   useEffect(() => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // Apply video filters when they change
+  useEffect(() => {
+    applyVideoFilters();
+  }, [applyVideoFilters]);
+
+  // Handle Picture-in-Picture events
+  useEffect(() => {
+    const handlePipEnter = () => setIsPictureInPicture(true);
+    const handlePipLeave = () => setIsPictureInPicture(false);
+
+    const video = videoRef.current;
+    if (video) {
+      video.addEventListener("enterpictureinpicture", handlePipEnter);
+      video.addEventListener("leavepictureinpicture", handlePipLeave);
+    }
+
+    return () => {
+      if (video) {
+        video.removeEventListener("enterpictureinpicture", handlePipEnter);
+        video.removeEventListener("leavepictureinpicture", handlePipLeave);
+      }
+    };
+  }, []);
 
   const resetControlsTimeout = useCallback(() => {
     if (controlsTimeoutRef.current) {
@@ -156,6 +220,81 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
     },
     [resetControlsTimeout]
   );
+
+  // New enhanced functionality methods
+  const togglePictureInPicture = useCallback(async () => {
+    if (!videoRef.current) return;
+
+    try {
+      if (document.pictureInPictureEnabled) {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+          setIsPictureInPicture(false);
+        } else {
+          await videoRef.current.requestPictureInPicture();
+          setIsPictureInPicture(true);
+        }
+      }
+    } catch (error) {
+      console.error("Picture-in-Picture failed:", error);
+    }
+    resetControlsTimeout();
+  }, [resetControlsTimeout]);
+
+  const changePlaybackSpeed = useCallback(
+    (speed: number) => {
+      if (!videoRef.current) return;
+
+      videoRef.current.playbackRate = speed;
+      setPlaybackSpeed(speed);
+      resetControlsTimeout();
+    },
+    [resetControlsTimeout]
+  );
+
+  const toggleLoopMode = useCallback(() => {
+    if (!videoRef.current) return;
+
+    const modes: ("none" | "single" | "playlist")[] = [
+      "none",
+      "single",
+      "playlist",
+    ];
+    const currentIndex = modes.indexOf(loopMode);
+    const nextMode = modes[(currentIndex + 1) % modes.length];
+
+    setLoopMode(nextMode);
+    videoRef.current.loop = nextMode === "single";
+    resetControlsTimeout();
+  }, [loopMode, resetControlsTimeout]);
+
+  const resetVideoFilters = useCallback(() => {
+    const defaultFilters = {
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+      hue: 0,
+      blur: 0,
+      grayscale: 0,
+    };
+    setVideoFilters(defaultFilters);
+  }, []);
+
+  const handleSeekHover = useCallback(
+    (e: React.MouseEvent<HTMLInputElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const percent = (e.clientX - rect.left) / rect.width;
+      const time = percent * duration;
+      setHoverTime(time);
+      setShowThumbnailPreview(true);
+    },
+    [duration]
+  );
+
+  const handleSeekLeave = useCallback(() => {
+    setHoverTime(null);
+    setShowThumbnailPreview(false);
+  }, []);
 
   const handleTimeUpdate = useCallback(() => {
     if (!videoRef.current) return;
@@ -276,8 +415,50 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
           e.preventDefault();
           toggleMute();
           break;
+        case "l":
+          e.preventDefault();
+          toggleLoopMode();
+          break;
+        case "p":
+          e.preventDefault();
+          togglePictureInPicture();
+          break;
+        case "s":
+          e.preventDefault();
+          setShowSettings(!showSettings);
+          break;
+        case "1":
+          e.preventDefault();
+          changePlaybackSpeed(0.5);
+          break;
+        case "2":
+          e.preventDefault();
+          changePlaybackSpeed(1);
+          break;
+        case "3":
+          e.preventDefault();
+          changePlaybackSpeed(1.25);
+          break;
+        case "4":
+          e.preventDefault();
+          changePlaybackSpeed(1.5);
+          break;
+        case "5":
+          e.preventDefault();
+          changePlaybackSpeed(2);
+          break;
+        case "?":
+          e.preventDefault();
+          setShowKeyboardShortcuts(!showKeyboardShortcuts);
+          break;
         case "Escape":
-          if (!fullscreen) {
+          if (showSettings) {
+            setShowSettings(false);
+          } else if (showKeyboardShortcuts) {
+            setShowKeyboardShortcuts(false);
+          } else if (showVideoFilters) {
+            setShowVideoFilters(false);
+          } else if (!fullscreen) {
             onClose();
           }
           break;
@@ -294,6 +475,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
     toggleFullscreen,
     toggleMute,
     togglePlay,
+    toggleLoopMode,
+    togglePictureInPicture,
+    changePlaybackSpeed,
+    showSettings,
+    showKeyboardShortcuts,
+    showVideoFilters,
   ]);
 
   useEffect(() => {
@@ -348,15 +535,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
       <div className={`player-controls ${showControls ? "visible" : ""}`}>
         <div className="seek-controls">
           <span className="time-display">{formatDuration(currentTime)}</span>
-          <input
-            type="range"
-            min="0"
-            max={duration || 100}
-            value={currentTime}
-            onChange={handleSeek}
-            className="seek-bar"
-            aria-label="Video progress"
-          />
+          <div className="seek-bar-container">
+            <input
+              type="range"
+              min="0"
+              max={duration || 100}
+              value={currentTime}
+              onChange={handleSeek}
+              onMouseMove={handleSeekHover}
+              onMouseLeave={handleSeekLeave}
+              className="seek-bar"
+              aria-label="Video progress"
+            />
+            {showThumbnailPreview && hoverTime !== null && (
+              <div className="seek-preview">
+                <div className="seek-preview-time">
+                  {formatDuration(hoverTime)}
+                </div>
+              </div>
+            )}
+          </div>
           <span className="time-display">{formatDuration(duration)}</span>
         </div>
 
@@ -387,6 +585,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
           </div>
 
           <div className="right-controls">
+            <div className="speed-control">
+              <select
+                value={playbackSpeed}
+                onChange={(e) =>
+                  changePlaybackSpeed(parseFloat(e.target.value))
+                }
+                className="speed-select"
+                title="Playback speed"
+              >
+                <option value="0.25">0.25x</option>
+                <option value="0.5">0.5x</option>
+                <option value="0.75">0.75x</option>
+                <option value="1">1x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+              </select>
+            </div>
+
+            <button
+              onClick={toggleLoopMode}
+              className={`control-button ${
+                loopMode !== "none" ? "active" : ""
+              }`}
+              title={`Loop mode: ${loopMode}`}
+            >
+              <Repeat size={20} />
+            </button>
+
+            <button
+              onClick={togglePictureInPicture}
+              className={`control-button ${isPictureInPicture ? "active" : ""}`}
+              title="Picture-in-Picture"
+            >
+              <PictureInPicture size={20} />
+            </button>
+
             <div className="volume-container">
               <button onClick={toggleMute} className="control-button">
                 {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -403,6 +638,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
                 aria-label="Volume control"
               />
             </div>
+
+            <button
+              onClick={() => setShowVideoFilters(!showVideoFilters)}
+              className={`control-button ${showVideoFilters ? "active" : ""}`}
+              title="Video filters"
+            >
+              <Sliders size={20} />
+            </button>
+
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className={`control-button ${showSettings ? "active" : ""}`}
+              title="Settings"
+            >
+              <Settings size={20} />
+            </button>
+
+            <button
+              onClick={() => setShowKeyboardShortcuts(!showKeyboardShortcuts)}
+              className="control-button"
+              title="Keyboard shortcuts"
+            >
+              <Keyboard size={20} />
+            </button>
 
             <button onClick={toggleFullscreen} className="control-button">
               {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
@@ -444,6 +703,253 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ file, onClose }) => {
           </div>
         )}
       </div>
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="settings-panel">
+          <div className="settings-header">
+            <h3>Settings</h3>
+            <button
+              onClick={() => setShowSettings(false)}
+              className="close-panel-button"
+              title="Close settings"
+              aria-label="Close settings"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="settings-content">
+            <div className="setting-group">
+              <label>Playback Speed</label>
+              <select
+                value={playbackSpeed}
+                onChange={(e) =>
+                  changePlaybackSpeed(parseFloat(e.target.value))
+                }
+                className="setting-select"
+                title="Select playback speed"
+              >
+                <option value="0.25">0.25x</option>
+                <option value="0.5">0.5x</option>
+                <option value="0.75">0.75x</option>
+                <option value="1">Normal (1x)</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+              </select>
+            </div>
+            <div className="setting-group">
+              <label>Loop Mode</label>
+              <select
+                value={loopMode}
+                onChange={(e) =>
+                  setLoopMode(e.target.value as "none" | "single" | "playlist")
+                }
+                className="setting-select"
+                title="Select loop mode"
+              >
+                <option value="none">No Loop</option>
+                <option value="single">Loop Single</option>
+                <option value="playlist">Loop Playlist</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Filters Panel */}
+      {showVideoFilters && (
+        <div className="video-filters-panel">
+          <div className="settings-header">
+            <h3>Video Filters</h3>
+            <button
+              onClick={() => setShowVideoFilters(false)}
+              className="close-panel-button"
+              title="Close video filters"
+              aria-label="Close video filters"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="filters-content">
+            <div className="filter-group">
+              <label>Brightness: {videoFilters.brightness}%</label>
+              <input
+                type="range"
+                min="0"
+                max="200"
+                value={videoFilters.brightness}
+                onChange={(e) =>
+                  setVideoFilters({
+                    ...videoFilters,
+                    brightness: parseInt(e.target.value),
+                  })
+                }
+                className="filter-slider"
+                aria-label="Brightness"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Contrast: {videoFilters.contrast}%</label>
+              <input
+                type="range"
+                min="0"
+                max="200"
+                value={videoFilters.contrast}
+                onChange={(e) =>
+                  setVideoFilters({
+                    ...videoFilters,
+                    contrast: parseInt(e.target.value),
+                  })
+                }
+                className="filter-slider"
+                aria-label="Contrast"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Saturation: {videoFilters.saturation}%</label>
+              <input
+                type="range"
+                min="0"
+                max="200"
+                value={videoFilters.saturation}
+                onChange={(e) =>
+                  setVideoFilters({
+                    ...videoFilters,
+                    saturation: parseInt(e.target.value),
+                  })
+                }
+                className="filter-slider"
+                aria-label="Saturation"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Hue: {videoFilters.hue}°</label>
+              <input
+                type="range"
+                min="0"
+                max="360"
+                value={videoFilters.hue}
+                onChange={(e) =>
+                  setVideoFilters({
+                    ...videoFilters,
+                    hue: parseInt(e.target.value),
+                  })
+                }
+                className="filter-slider"
+                aria-label="Hue"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Blur: {videoFilters.blur}px</label>
+              <input
+                type="range"
+                min="0"
+                max="10"
+                value={videoFilters.blur}
+                onChange={(e) =>
+                  setVideoFilters({
+                    ...videoFilters,
+                    blur: parseInt(e.target.value),
+                  })
+                }
+                className="filter-slider"
+                aria-label="Blur"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Grayscale: {videoFilters.grayscale}%</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={videoFilters.grayscale}
+                onChange={(e) =>
+                  setVideoFilters({
+                    ...videoFilters,
+                    grayscale: parseInt(e.target.value),
+                  })
+                }
+                className="filter-slider"
+                aria-label="Grayscale"
+              />
+            </div>
+            <div className="filter-actions">
+              <button
+                onClick={resetVideoFilters}
+                className="filter-reset-button"
+              >
+                Reset Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Panel */}
+      {showKeyboardShortcuts && (
+        <div className="keyboard-shortcuts-panel">
+          <div className="settings-header">
+            <h3>Keyboard Shortcuts</h3>
+            <button
+              onClick={() => setShowKeyboardShortcuts(false)}
+              className="close-panel-button"
+              title="Close keyboard shortcuts"
+              aria-label="Close keyboard shortcuts"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="shortcuts-content">
+            <div className="shortcut-group">
+              <div className="shortcut-item">
+                <kbd>Space</kbd> or <kbd>K</kbd>
+                <span>Play/Pause</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>F</kbd>
+                <span>Toggle Fullscreen</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>M</kbd>
+                <span>Toggle Mute</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>L</kbd>
+                <span>Toggle Loop Mode</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>P</kbd>
+                <span>Picture-in-Picture</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>S</kbd>
+                <span>Settings</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>→</kbd>
+                <span>Skip Forward 10s</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>←</kbd>
+                <span>Skip Backward 10s</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>1-5</kbd>
+                <span>Playback Speed (0.5x - 2x)</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>?</kbd>
+                <span>Show/Hide Shortcuts</span>
+              </div>
+              <div className="shortcut-item">
+                <kbd>Esc</kbd>
+                <span>Close Player/Panels</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
